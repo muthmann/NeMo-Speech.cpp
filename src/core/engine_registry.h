@@ -12,6 +12,7 @@
 
 #if defined(NEMO_SPEECH_REGISTRY_DIAR)
 #include "diarizer.h"
+#include "titanet_model.h"
 #endif
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
 #include "recognizer.h"
@@ -56,6 +57,9 @@ class EngineRegistry {
         int gpu, const std::string& model_path, asr::DiarGeometry geometry = {},
         asr::BatchingConfig batching = {});
     std::shared_ptr<asr::Diarizer> diarization() const;
+    // Speaker embeddings (TitaNet) for recognizing known speakers across recordings.
+    std::shared_ptr<asr::SpeakerEmbedder> load_speaker(int gpu, const std::string& model_path);
+    std::shared_ptr<asr::SpeakerEmbedder> speaker() const;  // nullptr when not loaded
 #endif
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
     std::shared_ptr<asr::Recognizer> load_asr(asr::RecognizerConfig config);
@@ -92,6 +96,7 @@ class EngineRegistry {
 #if defined(NEMO_SPEECH_REGISTRY_DIAR)
     std::shared_ptr<asr::Diarizer> diar_;
     bool diar_from_asr_ = false;
+    std::shared_ptr<asr::SpeakerEmbedder> speaker_;
 #endif
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
     std::shared_ptr<asr::Recognizer> asr_;

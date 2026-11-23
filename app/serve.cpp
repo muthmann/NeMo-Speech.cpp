@@ -94,7 +94,7 @@ validate_compiled_feature_options(int argc, char** argv) {
             add(option, "NEMO_SPEECH_BUILD_ASR=ON");
 #endif
 #if !defined(NEMO_SPEECH_CLI_DIAR)
-        if (option == "--diar-model")
+        if (option == "--diar-model" || option == "--spk-model")
             add(option, "NEMO_SPEECH_BUILD_DIAR=ON");
 #endif
 #if !defined(NEMO_SPEECH_CLI_NMT)
@@ -140,6 +140,7 @@ run_server(int argc, char** argv) {
 #endif
 #if defined(NEMO_SPEECH_CLI_DIAR)
     std::string diar_model;
+    std::string spk_model;
     nemo_speech::asr::DiarConfig diar_config;
 #endif
 #if defined(NEMO_SPEECH_CLI_NMT)
@@ -360,6 +361,8 @@ run_server(int argc, char** argv) {
 #if defined(NEMO_SPEECH_CLI_DIAR)
         else if (arg == "--diar-model")
             diar_model = value(i, arg);
+        else if (arg == "--spk-model")
+            spk_model = value(i, arg);
 #endif
 #if defined(NEMO_SPEECH_CLI_NMT)
         else if (arg == "--nmt-model")
@@ -610,6 +613,8 @@ run_server(int argc, char** argv) {
 #if defined(NEMO_SPEECH_CLI_DIAR)
     if (!standalone_diar.empty())
         engines.load_diarization(gpu, standalone_diar, diar_config.resolved_geometry());
+    if (!spk_model.empty())
+        engines.load_speaker(gpu, spk_model);
 #endif
 #if defined(NEMO_SPEECH_CLI_NMT)
     if (!nmt_path.empty()) {
@@ -775,6 +780,7 @@ print_serve_help(const char* program) {
 #endif
 #if defined(NEMO_SPEECH_CLI_DIAR)
         "  --diar-model MODEL      Optional Sortformer path or indexed model\n"
+        "  --spk-model FILE        Optional TitaNet speaker-embedding GGUF\n"
 #endif
 #if defined(NEMO_SPEECH_CLI_TTS)
         "  --tts-model MODEL       Optional MagpieTTS path or indexed model\n"

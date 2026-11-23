@@ -7,3 +7,6 @@ __pycache__/
 core.*
 client_logs/
 .venv/
+
+# Locally converted models
+models/local/

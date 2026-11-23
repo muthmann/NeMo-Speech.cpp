@@ -41,6 +41,20 @@ EngineRegistry::diarization() const {
         return diar_;
     throw std::runtime_error("diarization is not loaded");
 }
+
+std::shared_ptr<asr::SpeakerEmbedder>
+EngineRegistry::load_speaker(int gpu, const std::string& model_path) {
+    auto engine = asr::SpeakerEmbedder::load(gpu, model_path);
+    std::lock_guard<std::mutex> lock(mutex_);
+    speaker_ = engine;
+    return engine;
+}
+
+std::shared_ptr<asr::SpeakerEmbedder>
+EngineRegistry::speaker() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return speaker_;
+}
 #endif
 
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
@@ -235,6 +249,8 @@ EngineRegistry::capabilities() const {
     else if (asr_ && asr_->supports_offline_diarization())
         result.emplace_back("diarization");
 #endif
+    if (speaker_)
+        result.emplace_back("speaker-embedding");
 #endif
 #if defined(NEMO_SPEECH_REGISTRY_TTS)
     if (tts_)

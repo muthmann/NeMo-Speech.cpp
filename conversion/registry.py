@@ -29,6 +29,7 @@ ARCHITECTURES = (
     "codec",
     "nmt",
     "s2s",
+    "speaker",
 )
 
 
@@ -66,6 +67,8 @@ def _architecture_from_config(config: dict) -> str:
         return "pee"
     if "sortformer" in target or "sortformer_modules" in config:
         return "diarization"
+    if "encdecspeakerlabelmodel" in target:
+        return "speaker"
     if "punctuationcapitalization" in target or ("punct_head" in config and "capit_head" in config):
         return "pnc"
     if "magpietts" in target:
@@ -165,6 +168,7 @@ def _normalized_outtype(architecture: str, outtype: str) -> str:
         "s2s": "q4_k_m",
         "salm": "nvfp4",
         "dflash2": "bf16",
+        "speaker": "f32",
     }
     value = defaults[architecture] if outtype == "auto" else outtype.lower()
     if value == "fp16":
@@ -195,6 +199,7 @@ def _normalized_outtype(architecture: str, outtype: str) -> str:
         "s2s": {"bf16", "q4_k_m", "nvfp4"},
         "salm": {"nvfp4", "iq4_nl", "q2_0"},
         "dflash2": {"bf16", "f16", "f32"},
+        "speaker": {"f32", "f16"},
     }
     if value not in supported[architecture]:
         choices = ", ".join(sorted(supported[architecture]))
@@ -252,6 +257,11 @@ def convert_model(request: ConversionRequest) -> str:
 
         assert checkpoint is not None
         diarization.convert(checkpoint, request.outfile, "fp16" if outtype == "f16" else outtype)
+    elif architecture == "speaker":
+        from . import speaker
+
+        assert checkpoint is not None
+        speaker.convert(checkpoint, request.outfile, outtype)
     elif architecture == "pee":
         from . import pee
 

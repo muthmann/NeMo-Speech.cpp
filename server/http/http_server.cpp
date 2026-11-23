@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -284,7 +285,8 @@ pcm16_samples(const std::string& bytes) {
 
 std::string
 transcript_response(
-    const asr::Result& result, const std::string& requested_language, const std::string& format) {
+    const asr::Result& result, const std::string& requested_language, const std::string& format,
+    const Value* speakers = nullptr) {
     const asr::Alternative empty;
     const auto& alternative = result.alternatives.empty() ? empty : result.alternatives.front();
     if (format == "text")
@@ -320,8 +322,88 @@ transcript_response(
             words.emplace_back(std::move(item));
         }
         root["words"] = std::move(words);
+        if (speakers)
+            root["speakers"] = *speakers;
     }
     return root.dump();
+}
+#endif
+
+#if defined(NEMO_SPEECH_REGISTRY_DIAR)
+Value
+embedding_json(const std::vector<float>& embedding) {
+    Value::Array values;
+    values.reserve(embedding.size());
+    for (float x : embedding) values.emplace_back(static_cast<double>(x));
+    return Value(std::move(values));
+}
+#endif
+
+#if defined(NEMO_SPEECH_REGISTRY_ASR) && defined(NEMO_SPEECH_REGISTRY_DIAR)
+// One L2-normalized embedding per diarized speaker, computed from that
+// speaker's longest turns so that crosstalk at turn changes stays out.
+Value
+speaker_embeddings(
+    const asr::SpeakerEmbedder& embedder, const asr::Result& result,
+    const std::vector<float>& samples, int sample_rate) {
+    constexpr double kMaxGap = 1.0;       // s between two words of one turn
+    constexpr double kMinTurn = 1.0;      // s; shorter turns are mostly interjections
+    constexpr double kTrim = 0.1;         // s cut at both turn edges
+    constexpr double kMaxSeconds = 60.0;  // audio used per speaker
+    struct Turn {
+        int speaker;
+        double start;
+        double end;
+    };
+    std::vector<Turn> turns;
+    if (!result.alternatives.empty()) {
+        for (const auto& word : result.alternatives.front().words) {
+            if (word.speaker_tag <= 0)
+                continue;
+            const double start = word.start_time / 1000.0;
+            const double end = word.end_time / 1000.0;
+            if (!turns.empty() && turns.back().speaker == word.speaker_tag &&
+                start - turns.back().end < kMaxGap)
+                turns.back().end = std::max(turns.back().end, end);
+            else
+                turns.push_back({word.speaker_tag, start, end});
+        }
+    }
+    std::map<int, std::vector<Turn>> by_speaker;
+    for (const auto& turn : turns)
+        if (turn.end - turn.start >= kMinTurn)
+            by_speaker[turn.speaker].push_back(turn);
+
+    Value::Array output;
+    for (auto& [speaker, list] : by_speaker) {
+        std::sort(list.begin(), list.end(), [](const Turn& a, const Turn& b) {
+            return a.end - a.start > b.end - b.start;
+        });
+        std::vector<float> audio;
+        double total = 0.0;
+        for (const auto& turn : list) {
+            if (total >= kMaxSeconds)
+                break;
+            const size_t begin =
+                std::min(samples.size(), static_cast<size_t>(std::max(0.0, turn.start + kTrim) * sample_rate));
+            size_t end =
+                std::min(samples.size(), static_cast<size_t>(std::max(0.0, turn.end - kTrim) * sample_rate));
+            end = std::min(end, begin + static_cast<size_t>((kMaxSeconds - total) * sample_rate));
+            if (end <= begin)
+                continue;
+            audio.insert(audio.end(), samples.begin() + begin, samples.begin() + end);
+            total += static_cast<double>(end - begin) / sample_rate;
+        }
+        if (total < embedder.min_seconds())
+            continue;
+        Value item(Value::Object{});
+        item["speaker"] = speaker;
+        item["embedding_seconds"] = total;
+        item["embedding"] =
+            embedding_json(embedder.embed_long(audio.data(), audio.size(), sample_rate));
+        output.emplace_back(std::move(item));
+    }
+    return Value(std::move(output));
 }
 #endif
 
@@ -571,6 +653,16 @@ struct Server::Impl {
                 item["device"] = this->models.device_label();
                 data.emplace_back(std::move(item));
             }
+            if (auto speaker = this->models.speaker()) {
+                Value item(Value::Object{});
+                item["id"] = speaker->model_name();
+                item["object"] = "model";
+                item["owned_by"] = "local";
+                item["capability"] = "speaker-embedding";
+                item["dimension"] = speaker->embedding_dim();
+                item["device"] = this->models.device_label();
+                data.emplace_back(std::move(item));
+            }
 #endif
 #if defined(NEMO_SPEECH_REGISTRY_TTS)
             try {
@@ -693,6 +785,21 @@ struct Server::Impl {
                 if (options.enable_speaker_diarization && format != "verbose_json")
                     throw std::invalid_argument(
                         "diarization requires response_format=verbose_json");
+                const bool with_speaker_embeddings = form_bool(request, "speaker_embeddings");
+#if defined(NEMO_SPEECH_REGISTRY_DIAR)
+                const auto embedder = this->models.speaker();
+#endif
+                if (with_speaker_embeddings) {
+                    if (!options.enable_speaker_diarization)
+                        throw std::invalid_argument("speaker_embeddings requires diarization=true");
+#if defined(NEMO_SPEECH_REGISTRY_DIAR)
+                    if (!embedder)
+                        throw std::invalid_argument(
+                            "speaker_embeddings requires a speaker model (--spk-model)");
+#else
+                    throw std::invalid_argument("this build does not include speaker embeddings");
+#endif
+                }
                 // OpenAI-compat shim: `prompt` = one boosted phrase at the default
                 // score. The native field is `speech_contexts` (same shape as gRPC).
                 const std::string prompt = form_value(request, "prompt");
@@ -710,7 +817,14 @@ struct Server::Impl {
                 const auto result = recognizer->recognize(
                     audio.samples.data(), audio.samples.size(), options, language,
                     audio.sample_rate);
-                const auto body = transcript_response(result, language, format);
+                Value speakers;
+#if defined(NEMO_SPEECH_REGISTRY_DIAR)
+                if (with_speaker_embeddings)
+                    speakers =
+                        speaker_embeddings(*embedder, result, audio.samples, audio.sample_rate);
+#endif
+                const auto body = transcript_response(
+                    result, language, format, with_speaker_embeddings ? &speakers : nullptr);
                 const char* content_type =
                     format == "json" || format == "verbose_json"
                         ? "application/json"
@@ -1106,6 +1220,57 @@ struct Server::Impl {
             fail(response, 501, "this build does not include diarization");
 #endif
         };
+        server->Post(
+            "/v1/audio/speaker_embeddings",
+            [this](const httplib::Request& request, httplib::Response& response) {
+#if defined(NEMO_SPEECH_REGISTRY_DIAR)
+                auto embedder = this->models.speaker();
+                if (!embedder) {
+                    fail(response, 501, "no speaker-embedding model is loaded (--spk-model)");
+                    return;
+                }
+                const auto upload = uploaded_file(request);
+                const auto source = audio::load_wav_memory(
+                    upload.content.data(), upload.content.size(), upload.filename);
+                const auto seconds = [&](const char* name, double fallback) {
+                    const std::string text = form_value(request, name);
+                    if (text.empty())
+                        return fallback;
+                    size_t consumed = 0;
+                    double value = 0.0;
+                    try {
+                        value = std::stod(text, &consumed);
+                    }
+                    catch (const std::exception&) {
+                        consumed = 0;
+                    }
+                    if (consumed != text.size() || !std::isfinite(value) || value < 0.0)
+                        throw std::invalid_argument(std::string(name) + " must be seconds >= 0");
+                    return value;
+                };
+                const double duration =
+                    static_cast<double>(source.samples.size()) / source.sample_rate;
+                const double start = std::min(seconds("start", 0.0), duration);
+                const double end = std::min(seconds("end", duration), duration);
+                if (end <= start)
+                    throw std::invalid_argument("end must be greater than start");
+                const auto begin = static_cast<size_t>(start * source.sample_rate);
+                const auto stop = std::min(
+                    source.samples.size(), static_cast<size_t>(end * source.sample_rate));
+                const auto embedding = embedder->embed_long(
+                    source.samples.data() + begin, stop - begin, source.sample_rate);
+                Value root(Value::Object{});
+                root["object"] = "speaker_embedding";
+                root["model"] = embedder->model_name();
+                root["dimension"] = embedder->embedding_dim();
+                root["duration"] = static_cast<double>(stop - begin) / source.sample_rate;
+                root["embedding"] = embedding_json(embedding);
+                response.set_content(root.dump(), "application/json");
+#else
+                (void)request;
+                fail(response, 501, "this build does not include speaker embeddings");
+#endif
+            });
         server->Post("/v1/diarizations", diarize);
         server->Post("/v1/audio/diarizations", std::move(diarize));
 

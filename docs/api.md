@@ -354,3 +354,26 @@ Without a diarization model, a speech-LLM (SALM) model answers
 with its encoder's speaker branch and no transcript: the 10 ms speaker turns its
 word timestamps carry (activity above 0.5), whatever the `mode`. It needs the
 CTC timestamp head, like word timestamps.
+
+## POST /v1/audio/speaker_embeddings
+
+TitaNet speaker embedding of an upload (or a slice of it). Requires
+`serve --spk-model FILE` with a GGUF converted by
+`convert_model.py nvidia/speakerverification_en_titanet_large`.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `file` | WAV upload | required | audio of one speaker, at least 0.5 s |
+| `start` | float | `0` | slice start in seconds |
+| `end` | float | file end | slice end in seconds |
+
+Response: `{"object": "speaker_embedding", "model": name, "dimension": 192,
+"duration": s, "embedding": [...]}`. The embedding is L2-normalized: compare
+two speakers with a dot product (cosine similarity). Audio longer than 10 s
+is embedded in windows whose normalized embeddings are averaged.
+
+With a speaker model loaded, `POST /v1/audio/transcriptions` also accepts
+`speaker_embeddings=true` (requires `diarization=true`). The verbose JSON then
+carries `"speakers": [{"speaker": n, "embedding_seconds": s, "embedding": [...]}]`,
+one entry per diarized speaker, computed from up to 60 s of that speaker's
+longest turns (turns under 1 s are skipped).

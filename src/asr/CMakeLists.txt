@@ -11,6 +11,7 @@ file(GLOB ASR_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/decoders/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/vad/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/diar/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/spk/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/postproc/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/pnc/*.cpp"
 )
@@ -37,6 +38,7 @@ target_include_directories(nemo_speech_asr PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/decoders
     ${CMAKE_CURRENT_SOURCE_DIR}/vad
     ${CMAKE_CURRENT_SOURCE_DIR}/diar
+    ${CMAKE_CURRENT_SOURCE_DIR}/spk
     ${CMAKE_CURRENT_SOURCE_DIR}/postproc
     ${CMAKE_CURRENT_SOURCE_DIR}/pnc
 )
