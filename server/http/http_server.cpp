@@ -221,6 +221,14 @@ uploaded_file(const httplib::Request& request) {
         throw std::invalid_argument("multipart field 'file' is required");
     return request.form.get_file("file");
 }
+
+audio::IngestOptions
+upload_limits(int max_seconds) {
+    audio::IngestOptions limits;
+    limits.max_samples = static_cast<size_t>(max_seconds) * 16000;
+    limits.max_duration_seconds = max_seconds;
+    return limits;
+}
 #endif
 
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
@@ -737,7 +745,8 @@ struct Server::Impl {
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
                 const auto upload = uploaded_file(request);
                 const auto audio = audio::load_wav_memory(
-                    upload.content.data(), upload.content.size(), upload.filename);
+                    upload.content.data(), upload.content.size(), upload.filename,
+                    upload_limits(this->config.max_audio_seconds));
                 const std::string language = form_value(request, "language");
                 const std::string format = form_value(request, "response_format", "json");
                 if (format != "json" && format != "verbose_json" && format != "text" &&
@@ -934,7 +943,8 @@ struct Server::Impl {
 #if defined(NEMO_SPEECH_REGISTRY_ASR)
                 const auto upload = uploaded_file(request);
                 const auto source_audio = audio::load_wav_memory(
-                    upload.content.data(), upload.content.size(), upload.filename);
+                    upload.content.data(), upload.content.size(), upload.filename,
+                    upload_limits(this->config.max_audio_seconds));
                 const std::string requested_source = form_value(request, "language");
                 const std::string format = form_value(request, "response_format", "json");
                 if (format != "json" && format != "verbose_json" && format != "text")
@@ -1059,7 +1069,8 @@ struct Server::Impl {
 #if defined(NEMO_SPEECH_REGISTRY_SPEECH) && defined(NEMO_SPEECH_REGISTRY_TTS)
                 const auto upload = uploaded_file(request);
                 const auto source_audio = audio::load_wav_memory(
-                    upload.content.data(), upload.content.size(), upload.filename);
+                    upload.content.data(), upload.content.size(), upload.filename,
+                    upload_limits(this->config.max_audio_seconds));
                 speech::SpeechTranslationOptions options;
                 options.source_language = form_value(request, "language");
                 options.target_language = form_value(request, "target_language");
@@ -1164,7 +1175,8 @@ struct Server::Impl {
 #if defined(NEMO_SPEECH_REGISTRY_DIAR)
             const auto upload = uploaded_file(request);
             const auto source = audio::load_wav_memory(
-                upload.content.data(), upload.content.size(), upload.filename);
+                upload.content.data(), upload.content.size(), upload.filename,
+                upload_limits(this->config.max_audio_seconds));
             const std::string mode =
                 request.form.has_field("mode") ? request.form.get_field("mode") : "streaming";
             if (mode != "streaming" && mode != "offline")
@@ -1231,7 +1243,8 @@ struct Server::Impl {
                 }
                 const auto upload = uploaded_file(request);
                 const auto source = audio::load_wav_memory(
-                    upload.content.data(), upload.content.size(), upload.filename);
+                    upload.content.data(), upload.content.size(), upload.filename,
+                    upload_limits(this->config.max_audio_seconds));
                 const auto seconds = [&](const char* name, double fallback) {
                     const std::string text = form_value(request, name);
                     if (text.empty())

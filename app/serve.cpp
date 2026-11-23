@@ -191,6 +191,13 @@ run_server(int argc, char** argv) {
         },
         "Maximum HTTP request body in MiB");
     parser.Register(
+        "http.max-audio-seconds",
+        [&](const std::string& value) {
+            server_config.max_audio_seconds =
+                parse_int(value, "http.max-audio-seconds", 1, 86400);
+        },
+        "Longest audio upload in seconds");
+    parser.Register(
         "http.read-timeout",
         [&](const std::string& value) {
             server_config.read_timeout_seconds = parse_int(value, "http.read-timeout", 1, 3600);
@@ -312,6 +319,8 @@ run_server(int argc, char** argv) {
         } else if (arg == "--max-upload-mb")
             server_config.max_upload_bytes =
                 static_cast<size_t>(parse_int(value(i, arg), arg, 1, 16384)) * 1024 * 1024;
+        else if (arg == "--max-audio-seconds")
+            server_config.max_audio_seconds = parse_int(value(i, arg), arg, 1, 86400);
         else if (arg == "--read-timeout")
             server_config.read_timeout_seconds = parse_int(value(i, arg), arg, 1, 3600);
         else if (arg == "--write-timeout")
@@ -753,6 +762,7 @@ print_serve_help(const char* program) {
         "  --threads N             Bounded HTTP worker count (default: 4; with SALM,\n"
         "                          asr.salm.max_sequences + 8, at least 256)\n"
         "  --max-upload-mb N       Maximum request body (default: 512)\n"
+        "  --max-audio-seconds N   Longest audio upload (default: 3600)\n"
         "  --read-timeout SEC      Socket read timeout (default: 30)\n"
         "  --write-timeout SEC     Socket write timeout (default: 30)\n"
         "  --access-log            Log completed HTTP requests\n"

@@ -19,6 +19,8 @@ struct ServerConfig {
     int read_timeout_seconds = 30;
     int write_timeout_seconds = 30;
     size_t max_upload_bytes = 512ULL * 1024ULL * 1024ULL;
+    // Longest decoded audio upload (the chat API has its own limit).
+    int max_audio_seconds = 3600;
     bool access_log = false;
     bool json_logs = false;
     // Emit per-request TTS runtime timings to stderr.

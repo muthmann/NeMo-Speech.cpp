@@ -100,6 +100,7 @@ HTTP listener settings use the same precedence:
 | `--no-ui` / `http.playground` | playground on | disable the embedded playground |
 | `--threads` / `http.threads` | `4` | bounded worker pool; with a SALM model, `asr.salm.max_sequences + 8` and at least 256 |
 | `--max-upload-mb` / `http.max-upload-mb` | `512` | request-body limit |
+| `--max-audio-seconds` / `http.max-audio-seconds` | `3600` | longest audio upload (the chat API uses `http.chat.max-audio-seconds`) |
 | `--read-timeout` / `http.read-timeout` | `30` | socket read timeout in seconds |
 | `--write-timeout` / `http.write-timeout` | `30` | socket write timeout in seconds |
 | `--access-log` / `http.access-log` | false | log completed requests |
