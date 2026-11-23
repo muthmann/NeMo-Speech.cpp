@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 env:
-  PACKAGE_VERSION: 0.3.0-titanet
+  PACKAGE_VERSION: 0.3.0-titanet2
 
 jobs:
   build:
