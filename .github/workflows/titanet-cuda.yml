@@ -1,0 +1,82 @@
+name: TitaNet CUDA package
+
+# Fork only: builds the Linux x86_64 CUDA archive with TitaNet speaker
+# embeddings, using the same Dockerfile as release.yml, for Blackwell GPUs
+# (sm_120) only. Pushing a tag titanet-X attaches the archive to a draft
+# release; a manual run only builds it and keeps it as a workflow artifact.
+
+on:
+  push:
+    tags: ["titanet-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE_VERSION: 0.3.0-titanet
+
+jobs:
+  build:
+    name: Linux x86_64 CUDA (sm_120)
+    if: github.repository != 'NVIDIA/NeMo-Speech.cpp'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Initialize submodules
+        run: git submodule update --init --depth 1 llama.cpp third_party/cpp-httplib
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 -f docker/Dockerfile.release-linux \
+            --target cuda-artifact \
+            --build-arg CUDA_ARCH=120a-real \
+            --build-arg "RELEASE_VERSION=$PACKAGE_VERSION" \
+            --build-arg "JOBS=$(nproc)" \
+            --output type=local,dest=release-artifacts .
+          (cd release-artifacts && sha256sum --check ./*.sha256)
+          df -h /
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: titanet-linux-x86_64-cuda
+          path: release-artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Draft release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download the archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: titanet-linux-x86_64-cuda
+          path: release-artifacts
+
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft --title "$GITHUB_REF_NAME" \
+            --notes "Linux x86_64 CUDA package built from $GITHUB_SHA." \
+            release-artifacts/*
